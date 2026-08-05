@@ -246,6 +246,27 @@ async function loadSQLiteSavedChannels() {
   }
 }
 
+function isChannelSavedInSQLite(channel: Channel): Channel | undefined {
+  return sqliteSavedChannels.find((s) => s.id === channel.id || s.url === channel.url);
+}
+
+function updatePlayerSaveBtnState() {
+  if (!saveSqliteBtn) return;
+  if (!activeChannel) {
+    saveSqliteBtn.classList.remove("is-saved");
+    saveSqliteBtn.title = "Save Channel URL to SQLite Database";
+    return;
+  }
+  const savedMatch = isChannelSavedInSQLite(activeChannel);
+  if (savedMatch) {
+    saveSqliteBtn.classList.add("is-saved");
+    saveSqliteBtn.title = "Remove Channel from SQLite Database";
+  } else {
+    saveSqliteBtn.classList.remove("is-saved");
+    saveSqliteBtn.title = "Save Channel URL to SQLite Database";
+  }
+}
+
 /**
  * Initialize App
  */
@@ -537,6 +558,9 @@ function createChannelElement(channel: Channel): HTMLElement {
   const groupText = channel.group && channel.group.toLowerCase() !== "undefined" && channel.group.toLowerCase() !== "null" ? channel.group : "";
   const groupHtml = groupText ? `<div class="channel-group">${groupText}</div>` : "";
 
+  const savedMatch = isChannelSavedInSQLite(channel);
+  const isSavedSqlite = Boolean(savedMatch);
+
   item.innerHTML = `
     <div class="channel-logo-container">${logoHtml}</div>
     <div class="channel-info">
@@ -544,7 +568,7 @@ function createChannelElement(channel: Channel): HTMLElement {
       ${groupHtml}
     </div>
     <div style="display: flex; gap: 4px; align-items: center;">
-      <button class="save-ch-sqlite-btn" title="Save channel URL to SQLite database" data-sqlite-id="${channel.id}">
+      <button class="save-ch-sqlite-btn ${isSavedSqlite ? "is-saved" : ""}" title="${isSavedSqlite ? "Remove from Saved Channels (SQLite)" : "Save channel URL to SQLite database"}" data-sqlite-id="${channel.id}">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
           <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
@@ -565,17 +589,43 @@ function createChannelElement(channel: Channel): HTMLElement {
     playChannel(channel);
   });
 
-  // Save to SQLite Button on Channel Card
+  // Save / Delete SQLite Button on Channel Card
   const saveSqliteCardBtn = item.querySelector(".save-ch-sqlite-btn") as HTMLButtonElement;
   saveSqliteCardBtn.addEventListener("click", async (e) => {
     e.stopPropagation();
-    try {
-      const saved = await saveChannelUrlToSQLite(channel);
-      await loadSQLiteSavedChannels();
-      renderCategoryTabs();
-      showToast(`✅ Saved "${saved.name}" to SQLite database!`, 3500, "success");
-    } catch (err: any) {
-      showToast(`❌ Failed to save "${channel.name}" to SQLite: ${err.message || err}`, 4000, "error");
+    const currentSavedMatch = isChannelSavedInSQLite(channel);
+    if (currentSavedMatch) {
+      try {
+        await removeSavedChannelFromSQLite(currentSavedMatch.id);
+        await loadSQLiteSavedChannels();
+        renderCategoryTabs();
+        if (activeCategory === "SQLITE_SAVED") {
+          applyFilters();
+        } else {
+          renderChannelList();
+        }
+        await renderModalLists();
+        updatePlayerSaveBtnState();
+        showToast(`🗑️ Removed "${channel.name}" from saved channels`, 3500, "info");
+      } catch (err: any) {
+        showToast(`❌ Failed to remove "${channel.name}": ${err.message || err}`, 4000, "error");
+      }
+    } else {
+      try {
+        const saved = await saveChannelUrlToSQLite(channel);
+        await loadSQLiteSavedChannels();
+        renderCategoryTabs();
+        if (activeCategory === "SQLITE_SAVED") {
+          applyFilters();
+        } else {
+          renderChannelList();
+        }
+        await renderModalLists();
+        updatePlayerSaveBtnState();
+        showToast(`✅ Saved "${saved.name}" to SQLite database!`, 3500, "success");
+      } catch (err: any) {
+        showToast(`❌ Failed to save "${channel.name}" to SQLite: ${err.message || err}`, 4000, "error");
+      }
     }
   });
 
@@ -626,6 +676,7 @@ function playChannel(channel: Channel) {
   activeChannel = channel;
   addRecentChannelId(channel.id);
   setLastPlayedChannelId(channel.id);
+  updatePlayerSaveBtnState();
 
   if (window.innerWidth <= 900) {
     closeSidebar();
@@ -879,10 +930,13 @@ async function renderModalLists() {
           const id = btn.getAttribute("data-delete-sqlite-id")!;
           try {
             await removeSavedChannelFromSQLite(id);
+            await loadSQLiteSavedChannels();
             showToast("🗑️ Removed channel from SQLite database", 3000, "info");
-            await renderModalLists();
             renderCategoryTabs();
             if (activeCategory === "SQLITE_SAVED") applyFilters();
+            else renderChannelList();
+            await renderModalLists();
+            updatePlayerSaveBtnState();
           } catch (err: any) {
             showToast(`❌ Error removing channel: ${err.message || err}`, 3500, "error");
           }
@@ -1067,20 +1121,40 @@ function setupEventListeners() {
     importStorageFileInput.value = "";
   });
 
-  // Player Save to SQLite Button
+  // Player Save / Delete SQLite Button
   saveSqliteBtn?.addEventListener("click", async (e) => {
     e.stopPropagation();
     if (!activeChannel) {
-      showToast("⚠️ No active channel selected to save", 3000, "warning");
+      showToast("⚠️ No active channel selected", 3000, "warning");
       return;
     }
-    try {
-      const saved = await saveChannelUrlToSQLite(activeChannel);
-      await loadSQLiteSavedChannels();
-      renderCategoryTabs();
-      showToast(`✅ Saved "${saved.name}" URL to SQLite database!`, 3500, "success");
-    } catch (err: any) {
-      showToast(`❌ Failed to save channel to SQLite: ${err.message || err}`, 4000, "error");
+    const savedMatch = isChannelSavedInSQLite(activeChannel);
+    if (savedMatch) {
+      try {
+        await removeSavedChannelFromSQLite(savedMatch.id);
+        await loadSQLiteSavedChannels();
+        renderCategoryTabs();
+        if (activeCategory === "SQLITE_SAVED") applyFilters();
+        else renderChannelList();
+        await renderModalLists();
+        updatePlayerSaveBtnState();
+        showToast(`🗑️ Removed "${activeChannel.name}" from saved channels`, 3500, "info");
+      } catch (err: any) {
+        showToast(`❌ Failed to remove channel from SQLite: ${err.message || err}`, 4000, "error");
+      }
+    } else {
+      try {
+        const saved = await saveChannelUrlToSQLite(activeChannel);
+        await loadSQLiteSavedChannels();
+        renderCategoryTabs();
+        if (activeCategory === "SQLITE_SAVED") applyFilters();
+        else renderChannelList();
+        await renderModalLists();
+        updatePlayerSaveBtnState();
+        showToast(`✅ Saved "${saved.name}" URL to SQLite database!`, 3500, "success");
+      } catch (err: any) {
+        showToast(`❌ Failed to save channel to SQLite: ${err.message || err}`, 4000, "error");
+      }
     }
   });
 

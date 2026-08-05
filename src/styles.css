@@ -1066,6 +1066,32 @@ video {
   transform: scale(1.08);
 }
 
+.save-ch-sqlite-btn.is-saved {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: var(--accent-emerald);
+  color: var(--accent-emerald);
+}
+
+.save-ch-sqlite-btn.is-saved:hover {
+  background: rgba(244, 63, 94, 0.25);
+  border-color: var(--accent-rose);
+  color: var(--accent-rose);
+}
+
+#save-sqlite-btn.is-saved {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: var(--accent-emerald);
+  color: var(--accent-emerald);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.35);
+}
+
+#save-sqlite-btn.is-saved:hover {
+  background: rgba(244, 63, 94, 0.25);
+  border-color: var(--accent-rose);
+  color: var(--accent-rose);
+  box-shadow: 0 0 10px rgba(244, 63, 94, 0.4);
+}
+
 @keyframes slideIn {
   from { transform: translateY(20px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }

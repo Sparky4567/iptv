@@ -148,15 +148,15 @@ export async function saveChannelUrlToSQLite(channel: Channel): Promise<Channel>
   }
 }
 
-export async function removeSavedChannelFromSQLite(id: string): Promise<void> {
+export async function removeSavedChannelFromSQLite(idOrUrl: string): Promise<void> {
   try {
-    await fetch(`/api/storage/channels/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await fetch(`/api/storage/channels/${encodeURIComponent(idOrUrl)}`, { method: "DELETE" });
   } catch (err) {
     console.warn("Failed to remove channel from SQLite server:", err);
   }
 
   const localSaved = await getSavedChannelsFromSQLite();
-  const updated = localSaved.filter((c) => c.id !== id);
+  const updated = localSaved.filter((c) => c.id !== idOrUrl && c.url !== idOrUrl);
   await ImmortalDB.set(KEYS.SAVED_CHANNELS_LOCAL, JSON.stringify(updated));
 }
 

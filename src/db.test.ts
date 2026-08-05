@@ -36,6 +36,24 @@ describe("SQLite Storage Test Suite", () => {
     expect(updatedChannels.find((c) => c.id === "test-ch-1")).toBeUndefined();
   });
 
+  test("should delete saved channels by ID or URL", () => {
+    const ch1 = saveChannel({ name: "Channel By ID", url: "https://example.com/ch1.m3u8" });
+    const ch2 = saveChannel({ name: "Channel By URL", url: "https://example.com/ch2.m3u8" });
+
+    expect(getAllSavedChannels().some((c) => c.id === ch1.id)).toBe(true);
+    expect(getAllSavedChannels().some((c) => c.url === ch2.url)).toBe(true);
+
+    // Delete first channel by ID
+    const del1 = deleteSavedChannel(ch1.id);
+    expect(del1).toBe(true);
+    expect(getAllSavedChannels().some((c) => c.id === ch1.id)).toBe(false);
+
+    // Delete second channel by URL
+    const del2 = deleteSavedChannel(ch2.url);
+    expect(del2).toBe(true);
+    expect(getAllSavedChannels().some((c) => c.url === ch2.url)).toBe(false);
+  });
+
   test("should save, retrieve and delete playlist URLs in SQLite database", () => {
     const pl = savePlaylist("My Sports Playlist", "https://example.com/sports.m3u");
     expect(pl.name).toBe("My Sports Playlist");

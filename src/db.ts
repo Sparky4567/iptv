@@ -55,7 +55,9 @@ export function getAllSavedChannels(): Channel[] {
 }
 
 export function saveChannel(channel: Partial<Channel> & { name: string; url: string }): Channel {
-  const id = channel.id || `sqlite-ch-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const existingStmt = db.prepare("SELECT * FROM saved_channels WHERE url = ?");
+  const existing = existingStmt.get(channel.url) as any;
+  const id = channel.id || (existing ? existing.id : `sqlite-ch-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
   const createdAt = Date.now();
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO saved_channels (id, name, url, group_title, logo, tvg_id, country, language, created_at)
@@ -85,9 +87,9 @@ export function saveChannel(channel: Partial<Channel> & { name: string; url: str
   };
 }
 
-export function deleteSavedChannel(id: string): boolean {
-  const stmt = db.prepare("DELETE FROM saved_channels WHERE id = ?");
-  const result = stmt.run(id);
+export function deleteSavedChannel(idOrUrl: string): boolean {
+  const stmt = db.prepare("DELETE FROM saved_channels WHERE id = ? OR url = ?");
+  const result = stmt.run(idOrUrl, idOrUrl);
   return result.changes > 0;
 }
 
