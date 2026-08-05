@@ -227,7 +227,6 @@ Bun.serve({
           headers: responseHeaders,
         });
       } catch (err: any) {
-        console.error("Proxy error for URL:", targetUrl, err.message);
         return new Response(JSON.stringify({ error: err.message }), {
           status: 502,
           headers: {

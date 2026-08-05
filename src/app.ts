@@ -122,8 +122,18 @@ function closeSidebar() {
 /**
  * Enhanced Toast Notification Helper with explicit type toasts
  */
+let lastToastMessage = "";
+let lastToastTime = 0;
+
 function showToast(message: string, duration = 3500, type: "info" | "success" | "error" | "warning" = "info") {
   if (!toastContainer) return;
+  const now = Date.now();
+  if (message === lastToastMessage && now - lastToastTime < 3000) {
+    return;
+  }
+  lastToastMessage = message;
+  lastToastTime = now;
+
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
   toast.innerHTML = `<span>${message}</span>`;
@@ -323,7 +333,16 @@ async function loadPlaylist(url: string) {
     console.warn("Direct M3U fetch failed or blocked by CORS. Using Bun server proxy...", err);
     try {
       const proxyRes = await fetch(`/api/proxy?url=${encodeURIComponent(url)}`);
-      if (!proxyRes.ok) throw new Error(`Proxy error: ${proxyRes.status}`);
+      if (!proxyRes.ok) {
+        let errMsg = `Proxy error: ${proxyRes.status}`;
+        try {
+          const json = await proxyRes.json();
+          if (json && json.error) {
+            errMsg = json.error;
+          }
+        } catch (_) {}
+        throw new Error(errMsg);
+      }
       m3uText = await proxyRes.text();
     } catch (proxyErr: any) {
       showToast(`❌ Error loading playlist: ${proxyErr.message}`, 4000, "error");
@@ -751,13 +770,20 @@ function playChannel(channel: Channel) {
       updateAudioTrackSelector();
     });
 
+    let networkRetryCount = 0;
     hlsInstance.on(Hls.Events.ERROR, (event, data) => {
       if (data.fatal) {
         console.warn("HLS Error:", data);
         switch (data.type) {
           case Hls.ErrorTypes.NETWORK_ERROR:
-            showToast(`Network error loading ${channel.name}. Retrying...`, 2000, "warning");
-            hlsInstance?.startLoad();
+            networkRetryCount++;
+            if (networkRetryCount <= 1) {
+              showToast(`Network error loading ${channel.name}. Retrying...`, 2000, "warning");
+              hlsInstance?.startLoad();
+            } else {
+              hlsInstance?.destroy();
+              showToast(`❌ Error loading ${channel.name}: Unable to connect to stream`, 4000, "error");
+            }
             break;
           case Hls.ErrorTypes.MEDIA_ERROR:
             hlsInstance?.recoverMediaError();
