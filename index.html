@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PulseStream IPTV — Modern Online TV Player</title>
+  <meta name="description" content="Sleek, high-performance IPTV web application powered by Bun and ImmortalDB. Stream M3U playlists seamlessly.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📺</text></svg>">
+  <link rel="stylesheet" href="./src/styles.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="brand">
+      <button id="sidebar-toggle-btn" class="mobile-menu-btn" aria-label="Toggle Channels Menu" title="Channels & Categories Menu">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
+
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+          <path d="M17 2l-5 5-5-5"></path>
+        </svg>
+      </div>
+      <span class="brand-title">PulseStream IPTV</span>
+      <span class="brand-badge">Bun & ImmortalDB</span>
+    </div>
+
+    <div class="header-actions">
+      <button id="current-playlist-btn" class="playlist-selector-btn" title="Change or Manage Playlists">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15V6M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM12 12H3M16 6H3M12 18H3"></path>
+        </svg>
+        <span id="current-playlist-label">Global News (IPTV-org)</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M6 9l6 6 6-6"></path>
+        </svg>
+      </button>
+
+      <button id="add-url-btn" class="btn-primary">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        <span>Add M3U URL</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Mobile Backdrop Overlay -->
+  <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+
+  <!-- Main Container -->
+  <div class="app-container">
+    <!-- Sidebar with Categories View on the Left Side -->
+    <aside id="sidebar" class="sidebar">
+      <!-- Mobile Sidebar Top Bar -->
+      <div class="mobile-sidebar-header">
+        <div class="mobile-sidebar-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+            <path d="M17 2l-5 5-5-5"></path>
+          </svg>
+          <span>Channels & Categories</span>
+        </div>
+        <button id="close-sidebar-btn" class="close-sidebar-btn" aria-label="Close menu" title="Close menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Mobile Navigation Tabs (Categories vs Channels) -->
+      <div class="mobile-nav-tabs">
+        <button id="mobile-tab-categories" class="mobile-tab-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
+          </svg>
+          <span>Categories</span>
+        </button>
+        <button id="mobile-tab-channels" class="mobile-tab-btn active">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="8" y1="6" x2="21" y2="6"></line>
+            <line x1="8" y1="12" x2="21" y2="12"></line>
+            <line x1="8" y1="18" x2="21" y2="18"></line>
+            <line x1="3" y1="6" x2="3.01" y2="6"></line>
+            <line x1="3" y1="12" x2="3.01" y2="12"></line>
+            <line x1="3" y1="18" x2="3.01" y2="18"></line>
+          </svg>
+          <span>Channels</span>
+        </button>
+      </div>
+      <!-- Categories View Navigation Panel -->
+      <div class="category-sidebar" id="category-sidebar">
+        <div class="category-sidebar-header">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
+          </svg>
+          <span>Categories</span>
+        </div>
+        <div id="category-tree" class="category-tree">
+          <div class="category-tree-item active" data-category="ALL">
+            <span>🌐 All Channels</span>
+            <span class="category-count-badge">0</span>
+          </div>
+          <div class="category-tree-item" data-category="FAVORITES">
+            <span>★ Favorites</span>
+            <span class="category-count-badge">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Channel List Panel -->
+      <div class="channel-panel">
+        <div class="sidebar-header">
+          <!-- Search Bar -->
+          <div class="search-wrapper">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input type="text" id="search-input" class="search-input" placeholder="Search channels or groups..." autocomplete="off">
+            <button id="clear-search" class="clear-search-btn" title="Clear Search">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Channel Stats Header -->
+        <div class="sidebar-stats">
+          <span id="channel-count-label">Loading channels...</span>
+          <span id="active-group-label">Category: All</span>
+        </div>
+
+        <!-- Channel List -->
+        <div id="channel-list" class="channel-list">
+          <div class="empty-channels">
+            <div class="spinner"></div>
+            <p>Fetching M3U playlist...</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Player Viewport -->
+    <main class="player-viewport">
+      <div class="video-container" id="video-container">
+        <video id="video-player" playsinline crossorigin="anonymous"></video>
+
+        <!-- Player Overlay -->
+        <div id="player-overlay" class="player-overlay">
+          <!-- Top Info Card -->
+          <div class="overlay-top">
+            <div class="current-channel-card">
+              <img id="overlay-logo" class="current-logo" src="" alt="" style="display: none;" onerror="this.style.display='none';">
+              <div>
+                <div id="overlay-title" class="current-title">Select a Channel</div>
+                <div id="overlay-category" class="current-category">PulseStream IPTV</div>
+              </div>
+            </div>
+
+            <div class="live-badge">
+              <div class="live-dot"></div>
+              <span>LIVE</span>
+            </div>
+          </div>
+
+          <!-- Bottom Control Bar -->
+          <div class="overlay-bottom">
+            <div class="player-controls-row">
+              <div class="controls-left">
+                <button id="prev-channel-btn" class="control-btn" title="Previous Channel (Left Arrow)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="19 20 9 12 19 4 19 20"></polygon>
+                    <line x1="5" y1="19" x2="5" y2="5"></line>
+                  </svg>
+                </button>
+
+                <button id="play-pause-btn" class="control-btn" title="Play / Pause (Spacebar)">
+                  <svg id="play-icon" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                  </svg>
+                  <svg id="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                    <rect x="6" y="4" width="4" height="16"></rect>
+                    <rect x="14" y="4" width="4" height="16"></rect>
+                  </svg>
+                </button>
+
+                <button id="next-channel-btn" class="control-btn" title="Next Channel (Right Arrow)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="5 4 15 12 5 20 5 4"></polygon>
+                    <line x1="19" y1="5" x2="19" y2="19"></line>
+                  </svg>
+                </button>
+
+                <div class="volume-wrapper">
+                  <button id="mute-btn" class="control-btn" title="Mute / Unmute">
+                    <svg id="volume-high-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                      <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                    </svg>
+                    <svg id="volume-mute-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+                      <line x1="1" y1="1" x2="23" y2="23"></line>
+                      <path d="M9 9v6a1 1 0 0 0 1 1h4l5 5V4L15 9H9z"></path>
+                    </svg>
+                  </button>
+                  <input type="range" id="volume-slider" class="volume-slider" min="0" max="1" step="0.01" value="1" title="Volume Control">
+                  <span id="volume-val-badge" class="volume-val-badge">100%</span>
+                </div>
+              </div>
+
+              <div class="controls-right">
+                <div class="lang-selector-wrapper" style="position: relative;">
+                  <button id="lang-btn" class="control-btn" title="Audio / Language Tracks" style="display: none;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <line x1="2" y1="12" x2="22" y2="12"></line>
+                      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                    </svg>
+                  </button>
+                  <div id="lang-dropdown" class="lang-dropdown">
+                    <div class="lang-dropdown-header">Audio Language</div>
+                    <div id="lang-options-list" class="lang-options-list"></div>
+                  </div>
+                </div>
+
+                <button id="fav-toggle-btn" class="control-btn" title="Mark as Favorite">
+                  <svg id="fav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                  </svg>
+                </button>
+
+                <button id="fullscreen-btn" class="control-btn" title="Toggle Fullscreen (F)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Playlist Manager Modal -->
+  <div id="playlist-modal" class="modal-backdrop">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title">Manage M3U Playlists</h3>
+        <button id="close-modal-btn" class="modal-close-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Add New M3U Form -->
+        <form id="add-m3u-form" class="form-group">
+          <label class="form-label" for="m3u-name-input">Playlist Name (Optional)</label>
+          <input type="text" id="m3u-name-input" class="form-input" placeholder="e.g. My Custom Sports M3U">
+
+          <label class="form-label" for="m3u-url-input">M3U / M3U8 Playlist URL</label>
+          <div style="display: flex; gap: 10px;">
+            <input type="url" id="m3u-url-input" class="form-input" style="flex: 1;" placeholder="https://example.com/playlist.m3u" required>
+            <button type="submit" class="btn-primary">Save & Load</button>
+          </div>
+        </form>
+
+        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 8px 0;">
+
+        <!-- Saved Playlists Section (ImmortalDB) -->
+        <div>
+          <h4 class="form-label" style="margin-bottom: 12px;">Your Saved Playlists (Persisted with ImmortalDB)</h4>
+          <div id="saved-playlists-list" style="display: flex; flex-direction: column; gap: 8px;">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 8px 0;">
+
+        <!-- Preset Playlists -->
+        <div>
+          <h4 class="form-label" style="margin-bottom: 12px;">Preset Public TV Channels</h4>
+          <div id="preset-playlists-list" class="preset-grid">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script type="module" src="./src/app.ts"></script>
+</body>
+</html>
