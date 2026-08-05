@@ -12,12 +12,18 @@ import {
   addRecentChannelId,
   getLastPlayedChannelId,
   setLastPlayedChannelId,
+  getSavedChannelsFromSQLite,
+  saveChannelUrlToSQLite,
+  removeSavedChannelFromSQLite,
+  exportLocalFileStorage,
+  importLocalFileStorage,
 } from "./storage";
 import { Channel, SavedPlaylist } from "./types";
 
 // State
 let allChannels: Channel[] = [];
 let filteredChannels: Channel[] = [];
+let sqliteSavedChannels: Channel[] = [];
 let activeChannel: Channel | null = null;
 let activeCategory = "ALL";
 let searchQuery = "";
@@ -27,16 +33,17 @@ let currentPlaylistName = "Global News (IPTV-org)";
 let currentPlaylistUrl = PRESET_PLAYLISTS[0].url;
 const BATCH_SIZE = 80;
 let currentlyRenderedCount = BATCH_SIZE;
+let timelineInterval: any = null;
 
 // DOM Elements
 const videoElement = document.getElementById("video-player") as HTMLVideoElement;
 const channelListEl = document.getElementById("channel-list") as HTMLDivElement;
 const searchInput = document.getElementById("search-input") as HTMLInputElement;
 const clearSearchBtn = document.getElementById("clear-search") as HTMLButtonElement;
-const categoryBarEl = document.getElementById("category-bar") as HTMLDivElement;
 const categoryTreeEl = document.getElementById("category-tree") as HTMLDivElement;
 const channelCountLabel = document.getElementById("channel-count-label") as HTMLSpanElement;
 const activeGroupLabel = document.getElementById("active-group-label") as HTMLSpanElement;
+const sqliteChannelsCountBadge = document.getElementById("sqlite-channels-count") as HTMLSpanElement;
 
 // Header Controls & Modal
 const currentPlaylistBtn = document.getElementById("current-playlist-btn") as HTMLButtonElement;
@@ -48,7 +55,10 @@ const addM3uForm = document.getElementById("add-m3u-form") as HTMLFormElement;
 const m3uNameInput = document.getElementById("m3u-name-input") as HTMLInputElement;
 const m3uUrlInput = document.getElementById("m3u-url-input") as HTMLInputElement;
 const savedPlaylistsList = document.getElementById("saved-playlists-list") as HTMLDivElement;
+const savedChannelsSqliteList = document.getElementById("saved-channels-sqlite-list") as HTMLDivElement;
 const presetPlaylistsList = document.getElementById("preset-playlists-list") as HTMLDivElement;
+const exportStorageBtn = document.getElementById("export-storage-btn") as HTMLButtonElement;
+const importStorageFileInput = document.getElementById("import-storage-file") as HTMLInputElement;
 const toastContainer = document.getElementById("toast-container") as HTMLDivElement;
 
 // Overlay & Player Controls
@@ -64,10 +74,25 @@ const muteBtn = document.getElementById("mute-btn") as HTMLButtonElement;
 const volumeHighIcon = document.getElementById("volume-high-icon") as SVGElement;
 const volumeMuteIcon = document.getElementById("volume-mute-icon") as SVGElement;
 const volumeSlider = document.getElementById("volume-slider") as HTMLInputElement;
+const saveSqliteBtn = document.getElementById("save-sqlite-btn") as HTMLButtonElement;
 const favToggleBtn = document.getElementById("fav-toggle-btn") as HTMLButtonElement;
 const favIcon = document.getElementById("fav-icon") as SVGElement;
 const fullscreenBtn = document.getElementById("fullscreen-btn") as HTMLButtonElement;
 const videoContainer = document.getElementById("video-container") as HTMLDivElement;
+
+// Stream Timeline Overlay Elements (Shown on Pause)
+const streamTimelineContainer = document.getElementById("stream-timeline-container") as HTMLDivElement;
+const streamTimelineSlider = document.getElementById("stream-timeline-slider") as HTMLInputElement;
+const timelineTooltip = document.getElementById("timeline-tooltip") as HTMLDivElement;
+const timelineBufferedFill = document.getElementById("timeline-buffered-fill") as HTMLDivElement;
+const timelineStartTime = document.getElementById("timeline-start-time") as HTMLSpanElement;
+const timelineEndTime = document.getElementById("timeline-end-time") as HTMLSpanElement;
+const timelineMissedBadge = document.getElementById("timeline-missed-badge") as HTMLSpanElement;
+const timelineResumeBtn = document.getElementById("timeline-resume-btn") as HTMLButtonElement;
+const timelineLiveBtn = document.getElementById("timeline-live-btn") as HTMLButtonElement;
+const skipBack60Btn = document.getElementById("skip-back-60-btn") as HTMLButtonElement;
+const skipBack15Btn = document.getElementById("skip-back-15-btn") as HTMLButtonElement;
+const skipForward15Btn = document.getElementById("skip-forward-15-btn") as HTMLButtonElement;
 
 // Language / Audio Track Controls
 const langBtn = document.getElementById("lang-btn") as HTMLButtonElement;
@@ -95,11 +120,12 @@ function closeSidebar() {
 }
 
 /**
- * Toast Notification Helper
+ * Enhanced Toast Notification Helper with explicit type toasts
  */
-function showToast(message: string, duration = 3000) {
+function showToast(message: string, duration = 3500, type: "info" | "success" | "error" | "warning" = "info") {
+  if (!toastContainer) return;
   const toast = document.createElement("div");
-  toast.className = "toast";
+  toast.className = `toast toast-${type}`;
   toast.innerHTML = `<span>${message}</span>`;
   toastContainer.appendChild(toast);
   setTimeout(() => {
@@ -110,18 +136,129 @@ function showToast(message: string, duration = 3000) {
 }
 
 /**
+ * Safe video play handler to prevent AbortError interrupts
+ */
+async function safePlay(): Promise<boolean> {
+  try {
+    await videoElement.play();
+    updatePlayPauseIcons(true);
+    return true;
+  } catch (err: any) {
+    if (err.name === "AbortError") {
+      // Normal when playback request was interrupted by pause or source change
+    } else if (err.name === "NotAllowedError") {
+      showToast("⚠️ Autoplay blocked by browser. Click play to watch.", 4000, "warning");
+    } else {
+      console.warn("Playback error:", err);
+    }
+    updatePlayPauseIcons(false);
+    return false;
+  }
+}
+
+/**
+ * Safe video pause handler
+ */
+function safePause() {
+  try {
+    videoElement.pause();
+    updatePlayPauseIcons(false);
+  } catch (err) {
+    console.warn("Pause error:", err);
+  }
+}
+
+/**
+ * Format seconds into HH:MM:SS or MM:SS
+ */
+function formatSeconds(secs: number): string {
+  if (isNaN(secs) || secs < 0) return "00:00";
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = Math.floor(secs % 60);
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  if (h > 0) {
+    return `${pad(h)}:${pad(m)}:${pad(s)}`;
+  }
+  return `${pad(m)}:${pad(s)}`;
+}
+
+/**
+ * Get Seekable Buffer Range for Stream Timeline
+ */
+function getBufferRange() {
+  let start = 0;
+  let end = videoElement.duration || 0;
+
+  if (videoElement.seekable && videoElement.seekable.length > 0) {
+    start = videoElement.seekable.start(0);
+    end = videoElement.seekable.end(videoElement.seekable.length - 1);
+  } else if (videoElement.buffered && videoElement.buffered.length > 0) {
+    start = videoElement.buffered.start(0);
+    end = videoElement.buffered.end(videoElement.buffered.length - 1);
+  }
+
+  const current = videoElement.currentTime;
+  return { start, end, current };
+}
+
+/**
+ * Dynamic Stream Timeline Scrubber Update (Runs when Paused)
+ */
+function updateStreamTimeline() {
+  if (!videoElement) return;
+
+  const { start, end, current } = getBufferRange();
+  const rangeLength = Math.max(0.1, end - start);
+  const percent = Math.min(100, Math.max(0, ((current - start) / rangeLength) * 100));
+
+  if (streamTimelineSlider) streamTimelineSlider.value = percent.toString();
+  if (timelineBufferedFill) timelineBufferedFill.style.width = `${percent}%`;
+
+  const missedSeconds = Math.max(0, end - current);
+  if (missedSeconds > 2) {
+    const formattedMissed = formatSeconds(missedSeconds);
+    if (timelineMissedBadge) {
+      timelineMissedBadge.textContent = `You missed -${formattedMissed} of live stream`;
+      timelineMissedBadge.style.background = "rgba(245, 158, 11, 0.25)";
+      timelineMissedBadge.style.color = "var(--accent-amber)";
+    }
+  } else {
+    if (timelineMissedBadge) {
+      timelineMissedBadge.textContent = "Watching LIVE";
+      timelineMissedBadge.style.background = "rgba(16, 185, 129, 0.25)";
+      timelineMissedBadge.style.color = "var(--accent-emerald)";
+    }
+  }
+
+  const startOffsetSeconds = Math.max(0, end - start);
+  if (timelineStartTime) timelineStartTime.textContent = `Buffer Start (-${formatSeconds(startOffsetSeconds)})`;
+  if (timelineEndTime) timelineEndTime.textContent = `LIVE Edge (00:00)`;
+}
+
+/**
+ * Load SQLite Saved Channels into State
+ */
+async function loadSQLiteSavedChannels() {
+  sqliteSavedChannels = await getSavedChannelsFromSQLite();
+  if (sqliteChannelsCountBadge) {
+    sqliteChannelsCountBadge.textContent = sqliteSavedChannels.length.toString();
+  }
+}
+
+/**
  * Initialize App
  */
 async function initApp() {
-  // Load Favorites from ImmortalDB
+  // Load Favorites & SQLite Channels
   const favs = await getFavorites();
   favoritesSet = new Set(favs);
+  await loadSQLiteSavedChannels();
 
-  // Check last active playlist in ImmortalDB
+  // Check last active playlist
   const savedUrl = await getActivePlaylistUrl();
   if (savedUrl) {
     currentPlaylistUrl = savedUrl;
-    // Find matching preset or saved playlist name
     const presetMatch = PRESET_PLAYLISTS.find((p) => p.url === savedUrl);
     if (presetMatch) {
       currentPlaylistName = presetMatch.name;
@@ -134,8 +271,8 @@ async function initApp() {
 
   currentPlaylistLabel.textContent = currentPlaylistName;
 
-  // Render presets & saved playlists in modal
-  renderModalLists();
+  // Render modal lists
+  await renderModalLists();
 
   // Load Playlist
   await loadPlaylist(currentPlaylistUrl);
@@ -158,7 +295,6 @@ async function loadPlaylist(url: string) {
 
   let m3uText = "";
   try {
-    // Try direct fetch first
     const directRes = await fetch(url);
     if (!directRes.ok) throw new Error(`HTTP ${directRes.status}`);
     m3uText = await directRes.text();
@@ -169,7 +305,7 @@ async function loadPlaylist(url: string) {
       if (!proxyRes.ok) throw new Error(`Proxy error: ${proxyRes.status}`);
       m3uText = await proxyRes.text();
     } catch (proxyErr: any) {
-      showToast(`Error loading playlist: ${proxyErr.message}`);
+      showToast(`❌ Error loading playlist: ${proxyErr.message}`, 4000, "error");
       channelListEl.innerHTML = `
         <div class="empty-channels">
           <p style="color: var(--accent-rose)">Failed to fetch playlist.</p>
@@ -184,7 +320,6 @@ async function loadPlaylist(url: string) {
   // Parse Channels
   allChannels = parseM3U(m3uText);
 
-  // Apply saved favorite status
   allChannels.forEach((c) => {
     c.favorite = favoritesSet.has(c.id);
   });
@@ -199,16 +334,10 @@ async function loadPlaylist(url: string) {
     return;
   }
 
-  // Persist active playlist URL with ImmortalDB
   await setActivePlaylistUrl(url);
-
-  // Extract Categories / Groups
   renderCategoryTabs();
-
-  // Filter & Render
   applyFilters();
 
-  // Play last played channel if available in playlist, otherwise first channel
   const lastChannelId = await getLastPlayedChannelId();
   let channelToPlay = filteredChannels[0];
   if (lastChannelId) {
@@ -222,11 +351,11 @@ async function loadPlaylist(url: string) {
     playChannel(channelToPlay);
   }
 
-  showToast(`Loaded ${allChannels.length} channels`);
+  showToast(`Loaded ${allChannels.length} channels`, 3000, "info");
 }
 
 /**
- * Render Category Navigation Tree on the Left Side
+ * Render Category Navigation Tree
  */
 function renderCategoryTabs() {
   if (!categoryTreeEl) return;
@@ -238,7 +367,6 @@ function renderCategoryTabs() {
     groupsMap.set(groupName, (groupsMap.get(groupName) || 0) + 1);
   });
 
-  // Sort groups by channel count descending
   const sortedGroups = Array.from(groupsMap.entries()).sort((a, b) => b[1] - a[1]);
 
   let html = `
@@ -249,6 +377,10 @@ function renderCategoryTabs() {
     <div class="category-tree-item ${activeCategory === "FAVORITES" ? "active" : ""}" data-category="FAVORITES" title="Favorites">
       <span>★ Favorites</span>
       <span class="category-count-badge">${favoritesSet.size}</span>
+    </div>
+    <div class="category-tree-item ${activeCategory === "SQLITE_SAVED" ? "active" : ""}" data-category="SQLITE_SAVED" title="Saved Channels (SQLite DB)">
+      <span>💾 Saved Channels (SQLite)</span>
+      <span class="category-count-badge" id="sqlite-channels-count">${sqliteSavedChannels.length}</span>
     </div>
   `;
 
@@ -274,14 +406,13 @@ function renderCategoryTabs() {
 
   categoryTreeEl.innerHTML = html;
 
-  // Add click handlers for category tree items
   const items = categoryTreeEl.querySelectorAll(".category-tree-item");
   items.forEach((item) => {
     item.addEventListener("click", () => {
       items.forEach((i) => i.classList.remove("active"));
       item.classList.add("active");
       activeCategory = item.getAttribute("data-category") || "ALL";
-      activeGroupLabel.textContent = `Category: ${activeCategory}`;
+      activeGroupLabel.textContent = `Category: ${activeCategory === "SQLITE_SAVED" ? "SQLite Saved" : activeCategory}`;
       applyFilters();
       if (window.innerWidth <= 640 && mobileTabChannels) {
         mobileTabChannels.click();
@@ -295,12 +426,14 @@ function renderCategoryTabs() {
  */
 function applyFilters() {
   const query = searchQuery.trim().toLowerCase();
+  const sourceList = activeCategory === "SQLITE_SAVED" ? sqliteSavedChannels : allChannels;
 
-  filteredChannels = allChannels.filter((c) => {
-    // Category check
+  filteredChannels = sourceList.filter((c) => {
     let categoryMatch = true;
     if (activeCategory === "FAVORITES") {
       categoryMatch = favoritesSet.has(c.id);
+    } else if (activeCategory === "SQLITE_SAVED") {
+      categoryMatch = true;
     } else if (activeCategory !== "ALL") {
       const primaryGroup = (c.group || "General").split(";")[0].trim();
       categoryMatch = primaryGroup === activeCategory || (c.group || "").includes(activeCategory);
@@ -308,7 +441,6 @@ function applyFilters() {
 
     if (!categoryMatch) return false;
 
-    // Search query check
     if (query) {
       const nameMatch = c.name.toLowerCase().includes(query);
       const groupMatch = (c.group || "").toLowerCase().includes(query);
@@ -320,12 +452,12 @@ function applyFilters() {
   });
 
   currentlyRenderedCount = BATCH_SIZE;
-  channelCountLabel.textContent = `${filteredChannels.length} of ${allChannels.length} channels`;
+  channelCountLabel.textContent = `${filteredChannels.length} of ${sourceList.length} channels`;
   renderChannelList();
 }
 
 /**
- * Render Channel List in Sidebar (Lazy Batch Rendering for 10k+ Channels)
+ * Render Channel List in Sidebar
  */
 function renderChannelList() {
   channelListEl.scrollTop = 0;
@@ -360,7 +492,6 @@ function appendMoreChannels() {
   const nextBatch = filteredChannels.slice(currentlyRenderedCount, currentlyRenderedCount + BATCH_SIZE);
   currentlyRenderedCount += BATCH_SIZE;
 
-  // Remove old load indicator if present
   const oldIndicator = channelListEl.querySelector(".load-more-indicator");
   if (oldIndicator) oldIndicator.remove();
 
@@ -412,21 +543,43 @@ function createChannelElement(channel: Channel): HTMLElement {
       <div class="channel-name" title="${channel.name}">${channel.name}</div>
       ${groupHtml}
     </div>
-    <button class="fav-btn ${isFav ? "is-fav" : ""}" title="${isFav ? "Remove from Favorites" : "Add to Favorites"}" data-fav-id="${channel.id}">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="${isFav ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2">
-        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
-      </svg>
-    </button>
+    <div style="display: flex; gap: 4px; align-items: center;">
+      <button class="save-ch-sqlite-btn" title="Save channel URL to SQLite database" data-sqlite-id="${channel.id}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+        </svg>
+      </button>
+      <button class="fav-btn ${isFav ? "is-fav" : ""}" title="${isFav ? "Remove from Favorites" : "Add to Favorites"}" data-fav-id="${channel.id}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="${isFav ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+        </svg>
+      </button>
+    </div>
   `;
 
-  // Click to play
   item.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
-    if (target.closest(".fav-btn")) return;
+    if (target.closest(".fav-btn") || target.closest(".save-ch-sqlite-btn")) return;
     playChannel(channel);
   });
 
-  // Favorite button click handler
+  // Save to SQLite Button on Channel Card
+  const saveSqliteCardBtn = item.querySelector(".save-ch-sqlite-btn") as HTMLButtonElement;
+  saveSqliteCardBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    try {
+      const saved = await saveChannelUrlToSQLite(channel);
+      await loadSQLiteSavedChannels();
+      renderCategoryTabs();
+      showToast(`✅ Saved "${saved.name}" to SQLite database!`, 3500, "success");
+    } catch (err: any) {
+      showToast(`❌ Failed to save "${channel.name}" to SQLite: ${err.message || err}`, 4000, "error");
+    }
+  });
+
+  // Favorite Button Handler
   const favBtn = item.querySelector(".fav-btn") as HTMLButtonElement;
   favBtn.addEventListener("click", async (e) => {
     e.stopPropagation();
@@ -435,12 +588,12 @@ function createChannelElement(channel: Channel): HTMLElement {
       favoritesSet.add(channel.id);
       favBtn.classList.add("is-fav");
       favBtn.querySelector("svg")?.setAttribute("fill", "currentColor");
-      showToast(`Added "${channel.name}" to favorites`);
+      showToast(`Added "${channel.name}" to favorites`, 3000, "success");
     } else {
       favoritesSet.delete(channel.id);
       favBtn.classList.remove("is-fav");
       favBtn.querySelector("svg")?.setAttribute("fill", "none");
-      showToast(`Removed "${channel.name}" from favorites`);
+      showToast(`Removed "${channel.name}" from favorites`, 3000, "info");
     }
     renderCategoryTabs();
     if (activeCategory === "FAVORITES") applyFilters();
@@ -467,7 +620,7 @@ class CustomHlsLoader extends Hls.DefaultConfig.loader {
 }
 
 /**
- * Play Channel with Hls.js / Native Video Fallback
+ * Play Channel with Hls.js & Buffer Retention for Stream Timeline
  */
 function playChannel(channel: Channel) {
   activeChannel = channel;
@@ -478,7 +631,6 @@ function playChannel(channel: Channel) {
     closeSidebar();
   }
 
-  // Update active styling in sidebar
   document.querySelectorAll(".channel-item").forEach((el) => {
     if (el.getAttribute("data-channel-id") === channel.id) {
       el.classList.add("active");
@@ -488,7 +640,6 @@ function playChannel(channel: Channel) {
     }
   });
 
-  // Update Player Overlay Info
   overlayTitle.textContent = channel.name;
   const groupText = channel.group && channel.group.toLowerCase() !== "undefined" && channel.group.toLowerCase() !== "null" ? channel.group : "";
   const countryText = channel.country && channel.country.toLowerCase() !== "undefined" && channel.country.toLowerCase() !== "null" ? channel.country : "";
@@ -504,7 +655,6 @@ function playChannel(channel: Channel) {
     overlayLogo.style.display = "none";
   }
 
-  // Update Fav Icon in controls
   const isFav = favoritesSet.has(channel.id);
   if (isFav) {
     favIcon.setAttribute("fill", "currentColor");
@@ -514,11 +664,12 @@ function playChannel(channel: Channel) {
     favToggleBtn.style.color = "var(--text-main)";
   }
 
-  // Destroy previous HLS instance
   if (hlsInstance) {
     hlsInstance.destroy();
     hlsInstance = null;
   }
+
+  safePause();
 
   const streamUrl = channel.url;
   const isHls = streamUrl.includes(".m3u8") || streamUrl.includes("m3u8") || !streamUrl.endsWith(".mp4");
@@ -527,20 +678,17 @@ function playChannel(channel: Channel) {
     hlsInstance = new Hls({
       loader: CustomHlsLoader,
       enableWorker: true,
-      lowLatencyMode: true,
-      backBufferLength: 90,
-      maxBufferLength: 30,
-      maxMaxBufferLength: 60,
+      lowLatencyMode: false,
+      backBufferLength: 600, // Retain 10 minutes buffer for Stream Timeline rewind
+      maxBufferLength: 60,
+      maxMaxBufferLength: 120,
     });
 
     hlsInstance.loadSource(streamUrl);
     hlsInstance.attachMedia(videoElement);
 
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-      videoElement.play().catch(() => {
-        console.warn("Autoplay interrupted");
-      });
-      updatePlayPauseIcons(true);
+      safePlay();
       updateAudioTrackSelector();
     });
 
@@ -557,7 +705,7 @@ function playChannel(channel: Channel) {
         console.warn("HLS Error:", data);
         switch (data.type) {
           case Hls.ErrorTypes.NETWORK_ERROR:
-            showToast(`Network error loading ${channel.name}. Retrying...`, 2000);
+            showToast(`Network error loading ${channel.name}. Retrying...`, 2000, "warning");
             hlsInstance?.startLoad();
             break;
           case Hls.ErrorTypes.MEDIA_ERROR:
@@ -565,21 +713,17 @@ function playChannel(channel: Channel) {
             break;
           default:
             hlsInstance?.destroy();
-            showToast(`Stream unplayable: ${channel.name}`);
+            showToast(`Stream unplayable: ${channel.name}`, 3500, "error");
             break;
         }
       }
     });
   } else if (videoElement.canPlayType("application/vnd.apple.mpegurl")) {
-    // Native HLS support (e.g. Safari)
     videoElement.src = `/api/proxy?url=${encodeURIComponent(streamUrl)}`;
-    videoElement.play().catch(() => {});
-    updatePlayPauseIcons(true);
+    safePlay();
   } else {
-    // Standard MP4 / HTML5 stream
     videoElement.src = `/api/proxy?url=${encodeURIComponent(streamUrl)}`;
-    videoElement.play().catch(() => {});
-    updatePlayPauseIcons(true);
+    safePlay();
   }
 }
 
@@ -590,14 +734,19 @@ function updatePlayPauseIcons(isPlaying: boolean) {
   if (isPlaying) {
     playIcon.style.display = "none";
     pauseIcon.style.display = "block";
+    streamTimelineContainer.classList.remove("active");
   } else {
     playIcon.style.display = "block";
     pauseIcon.style.display = "none";
+    if (!videoElement.ended) {
+      streamTimelineContainer.classList.add("active");
+      updateStreamTimeline();
+    }
   }
 }
 
 /**
- * Update Audio Language Selector Button & Dropdown Options
+ * Update Audio Language Selector
  */
 function updateAudioTrackSelector() {
   if (!hlsInstance) {
@@ -614,7 +763,6 @@ function updateAudioTrackSelector() {
     return;
   }
 
-  // Multilanguage audio streams supported!
   langBtn.style.display = "flex";
   langOptionsList.innerHTML = "";
 
@@ -624,7 +772,6 @@ function updateAudioTrackSelector() {
     const item = document.createElement("div");
     const isSelected = track.id === currentTrackId;
     item.className = `lang-option-item ${isSelected ? "active" : ""}`;
-
     const trackName = track.name || track.lang || `Track ${track.id + 1}`;
 
     item.innerHTML = `
@@ -636,7 +783,7 @@ function updateAudioTrackSelector() {
       e.stopPropagation();
       if (hlsInstance) {
         hlsInstance.audioTrack = track.id;
-        showToast(`Switched audio language to: ${trackName}`);
+        showToast(`Switched audio language to: ${trackName}`, 2500, "info");
         langDropdown.classList.remove("active");
         updateAudioTrackSelector();
       }
@@ -646,9 +793,6 @@ function updateAudioTrackSelector() {
   });
 }
 
-/**
- * Next / Previous Channel Logic
- */
 function playNextChannel() {
   if (filteredChannels.length === 0) return;
   const currentIndex = filteredChannels.findIndex((c) => c.id === activeChannel?.id);
@@ -664,9 +808,11 @@ function playPrevChannel() {
 }
 
 /**
- * Render Modal Lists (Saved Playlists from ImmortalDB + Presets)
+ * Render Modal Lists (Presets, SQLite Channels, Playlists)
  */
 async function renderModalLists() {
+  await loadSQLiteSavedChannels();
+
   // Render Presets
   let presetHtml = "";
   PRESET_PLAYLISTS.forEach((preset) => {
@@ -682,7 +828,6 @@ async function renderModalLists() {
   });
   presetPlaylistsList.innerHTML = presetHtml;
 
-  // Add click handlers for presets
   presetPlaylistsList.querySelectorAll(".preset-card").forEach((card) => {
     card.addEventListener("click", () => {
       const url = card.getAttribute("data-preset-url")!;
@@ -695,10 +840,61 @@ async function renderModalLists() {
     });
   });
 
-  // Render Saved Playlists from ImmortalDB
+  // Render Saved Channels from SQLite DB
+  if (savedChannelsSqliteList) {
+    if (sqliteSavedChannels.length === 0) {
+      savedChannelsSqliteList.innerHTML = `<p style="font-size: 0.85rem; color: var(--text-dim);">No channel URLs saved to SQLite yet. Click the 💾 database button on any channel or player controls to save!</p>`;
+    } else {
+      let sqliteHtml = "";
+      sqliteSavedChannels.forEach((ch) => {
+        sqliteHtml += `
+          <div class="saved-playlist-item">
+            <div style="cursor: pointer; flex: 1; min-width: 0;" class="load-sqlite-ch-btn" data-sqlite-url="${ch.url}">
+              <div style="font-weight: 600; font-size: 0.88rem; color: #fff; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">💾 ${ch.name}</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${ch.url}</div>
+            </div>
+            <button class="delete-sqlite-ch-btn" data-delete-sqlite-id="${ch.id}" title="Remove from SQLite DB">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
+        `;
+      });
+      savedChannelsSqliteList.innerHTML = sqliteHtml;
+
+      savedChannelsSqliteList.querySelectorAll(".load-sqlite-ch-btn").forEach((el) => {
+        el.addEventListener("click", () => {
+          const url = el.getAttribute("data-sqlite-url")!;
+          const match = sqliteSavedChannels.find((c) => c.url === url);
+          closeModal();
+          if (match) playChannel(match);
+        });
+      });
+
+      savedChannelsSqliteList.querySelectorAll(".delete-sqlite-ch-btn").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const id = btn.getAttribute("data-delete-sqlite-id")!;
+          try {
+            await removeSavedChannelFromSQLite(id);
+            showToast("🗑️ Removed channel from SQLite database", 3000, "info");
+            await renderModalLists();
+            renderCategoryTabs();
+            if (activeCategory === "SQLITE_SAVED") applyFilters();
+          } catch (err: any) {
+            showToast(`❌ Error removing channel: ${err.message || err}`, 3500, "error");
+          }
+        });
+      });
+    }
+  }
+
+  // Render Saved Playlists
   const saved = await getSavedPlaylists();
   if (saved.length === 0) {
-    savedPlaylistsList.innerHTML = `<p style="font-size: 0.85rem; color: var(--text-dim);">No custom M3U URLs saved yet. Enter a URL above to save!</p>`;
+    savedPlaylistsList.innerHTML = `<p style="font-size: 0.85rem; color: var(--text-dim);">No custom M3U URLs saved yet. Enter a URL above to save to SQLite!</p>`;
     return;
   }
 
@@ -722,7 +918,6 @@ async function renderModalLists() {
 
   savedPlaylistsList.innerHTML = savedHtml;
 
-  // Add click handlers for saved item load
   savedPlaylistsList.querySelectorAll(".load-saved-btn").forEach((el) => {
     el.addEventListener("click", () => {
       const url = el.getAttribute("data-saved-url")!;
@@ -735,14 +930,17 @@ async function renderModalLists() {
     });
   });
 
-  // Delete saved playlist
   savedPlaylistsList.querySelectorAll(".delete-btn").forEach((btn) => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const id = btn.getAttribute("data-delete-id")!;
-      await removeSavedPlaylist(id);
-      showToast("Removed saved playlist");
-      renderModalLists();
+      try {
+        await removeSavedPlaylist(id);
+        showToast("🗑️ Removed saved playlist", 3000, "info");
+        renderModalLists();
+      } catch (err: any) {
+        showToast(`❌ Error deleting playlist: ${err.message || err}`, 3500, "error");
+      }
     });
   });
 }
@@ -759,7 +957,6 @@ function setupMobileNavigation() {
   closeSidebarBtn?.addEventListener("click", closeSidebar);
   sidebarBackdrop?.addEventListener("click", closeSidebar);
 
-  // Mobile Tabs (Categories vs Channels)
   mobileTabCategories?.addEventListener("click", () => {
     mobileTabCategories.classList.add("active");
     mobileTabChannels?.classList.remove("active");
@@ -788,7 +985,6 @@ function closeModal() {
  * Event Listeners Setup
  */
 function setupEventListeners() {
-  // Mobile Navigation Setup
   setupMobileNavigation();
 
   // Search input typing
@@ -798,7 +994,7 @@ function setupEventListeners() {
     applyFilters();
   });
 
-  // Infinite Scroll Listener for Sidebar Channel List
+  // Infinite Scroll
   channelListEl.addEventListener("scroll", () => {
     if (currentlyRenderedCount >= filteredChannels.length) return;
     if (channelListEl.scrollTop + channelListEl.clientHeight >= channelListEl.scrollHeight - 400) {
@@ -829,40 +1025,157 @@ function setupEventListeners() {
 
     if (!url) return;
 
-    // Save with ImmortalDB
-    await savePlaylistUrl(name, url);
-    showToast(`Saved playlist "${name}" to ImmortalDB!`);
+    try {
+      await savePlaylistUrl(name, url);
+      showToast(`✅ Saved playlist "${name}" to SQLite storage!`, 3500, "success");
+      currentPlaylistName = name;
+      currentPlaylistUrl = url;
+      currentPlaylistLabel.textContent = name;
 
-    currentPlaylistName = name;
-    currentPlaylistUrl = url;
-    currentPlaylistLabel.textContent = name;
+      m3uUrlInput.value = "";
+      m3uNameInput.value = "";
 
-    m3uUrlInput.value = "";
-    m3uNameInput.value = "";
-
-    closeModal();
-    loadPlaylist(url);
-  });
-
-  // Player Play/Pause
-  playPauseBtn.addEventListener("click", () => {
-    if (videoElement.paused) {
-      videoElement.play();
-      updatePlayPauseIcons(true);
-    } else {
-      videoElement.pause();
-      updatePlayPauseIcons(false);
+      closeModal();
+      loadPlaylist(url);
+    } catch (err: any) {
+      showToast(`❌ Failed to save playlist: ${err.message || err}`, 4000, "error");
     }
   });
 
-  videoElement.addEventListener("play", () => updatePlayPauseIcons(true));
-  videoElement.addEventListener("pause", () => updatePlayPauseIcons(false));
+  // Export / Import Local File Storage
+  exportStorageBtn?.addEventListener("click", async () => {
+    try {
+      await exportLocalFileStorage();
+      showToast("💾 Exported storage backup to JSON file!", 3500, "success");
+    } catch (err: any) {
+      showToast(`❌ Failed to export storage: ${err.message || err}`, 4000, "error");
+    }
+  });
+
+  importStorageFileInput?.addEventListener("change", async (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    try {
+      const content = await file.text();
+      const res = await importLocalFileStorage(content);
+      showToast(`✅ Imported ${res.channelsAdded} channels & ${res.playlistsAdded} playlists to SQLite!`, 4000, "success");
+      await renderModalLists();
+      renderCategoryTabs();
+    } catch (err: any) {
+      showToast(`❌ Failed to import storage: ${err.message || err}`, 4000, "error");
+    }
+    importStorageFileInput.value = "";
+  });
+
+  // Player Save to SQLite Button
+  saveSqliteBtn?.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (!activeChannel) {
+      showToast("⚠️ No active channel selected to save", 3000, "warning");
+      return;
+    }
+    try {
+      const saved = await saveChannelUrlToSQLite(activeChannel);
+      await loadSQLiteSavedChannels();
+      renderCategoryTabs();
+      showToast(`✅ Saved "${saved.name}" URL to SQLite database!`, 3500, "success");
+    } catch (err: any) {
+      showToast(`❌ Failed to save channel to SQLite: ${err.message || err}`, 4000, "error");
+    }
+  });
+
+  // Player Play/Pause Button
+  playPauseBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (videoElement.paused) {
+      await safePlay();
+    } else {
+      safePause();
+    }
+  });
+
+  videoElement.addEventListener("play", () => {
+    updatePlayPauseIcons(true);
+    if (timelineInterval) clearInterval(timelineInterval);
+  });
+
+  videoElement.addEventListener("pause", () => {
+    updatePlayPauseIcons(false);
+    if (!videoElement.ended) {
+      streamTimelineContainer.classList.add("active");
+      updateStreamTimeline();
+      if (timelineInterval) clearInterval(timelineInterval);
+      timelineInterval = setInterval(updateStreamTimeline, 500);
+    }
+  });
+
+  videoElement.addEventListener("timeupdate", () => {
+    if (videoElement.paused) {
+      updateStreamTimeline();
+    }
+  });
+
+  // Stream Timeline Slider Interaction
+  streamTimelineSlider?.addEventListener("input", () => {
+    const val = parseFloat(streamTimelineSlider.value);
+    const { start, end } = getBufferRange();
+    const targetTime = start + (val / 100) * Math.max(0, end - start);
+    videoElement.currentTime = targetTime;
+
+    const missedSeconds = Math.max(0, end - targetTime);
+    const tooltipText = missedSeconds > 1 ? `-${formatSeconds(missedSeconds)}` : "LIVE";
+    timelineTooltip.textContent = tooltipText;
+    timelineTooltip.style.left = `${val}%`;
+    timelineTooltip.classList.add("active");
+
+    updateStreamTimeline();
+  });
+
+  streamTimelineSlider?.addEventListener("change", () => {
+    timelineTooltip.classList.remove("active");
+  });
+
+  // Stream Timeline Quick Controls
+  skipBack60Btn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const { start } = getBufferRange();
+    videoElement.currentTime = Math.max(start, videoElement.currentTime - 60);
+    updateStreamTimeline();
+  });
+
+  skipBack15Btn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const { start } = getBufferRange();
+    videoElement.currentTime = Math.max(start, videoElement.currentTime - 15);
+    updateStreamTimeline();
+  });
+
+  skipForward15Btn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const { end } = getBufferRange();
+    videoElement.currentTime = Math.min(end, videoElement.currentTime + 15);
+    updateStreamTimeline();
+  });
+
+  timelineResumeBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    safePlay();
+    streamTimelineContainer.classList.remove("active");
+  });
+
+  timelineLiveBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const { end } = getBufferRange();
+    videoElement.currentTime = end;
+    safePlay();
+    streamTimelineContainer.classList.remove("active");
+  });
 
   // Next / Prev channel buttons
   nextChannelBtn.addEventListener("click", playNextChannel);
   prevChannelBtn.addEventListener("click", playPrevChannel);
 
-  // Mute & Volume Regulation Bar
+  // Mute & Volume
   muteBtn.addEventListener("click", () => {
     videoElement.muted = !videoElement.muted;
     volumeMuteIcon.style.display = videoElement.muted ? "block" : "none";
@@ -883,16 +1196,23 @@ function setupEventListeners() {
     if (volumeBadge) volumeBadge.textContent = `${Math.round(val * 100)}%`;
   });
 
-  // Video element click & dblclick interaction
-  videoElement.addEventListener("click", () => {
+  // Prevent control clicks from toggling play/pause accidentally
+  videoElement.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest(".player-overlay, .stream-timeline-container, .modal-backdrop")) {
+      return;
+    }
     playPauseBtn.click();
   });
 
-  videoElement.addEventListener("dblclick", () => {
+  videoElement.addEventListener("dblclick", (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest(".player-overlay, .stream-timeline-container, .modal-backdrop")) {
+      return;
+    }
     fullscreenBtn.click();
   });
 
-  // Language selector button click
   langBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     langDropdown.classList.toggle("active");
@@ -904,27 +1224,27 @@ function setupEventListeners() {
     }
   });
 
-  // Favorite button inside player overlay
-  favToggleBtn.addEventListener("click", async () => {
+  favToggleBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
     if (!activeChannel) return;
     const isFav = await toggleFavoriteId(activeChannel.id);
     if (isFav) {
       favoritesSet.add(activeChannel.id);
       favIcon.setAttribute("fill", "currentColor");
       favToggleBtn.style.color = "var(--accent-amber)";
-      showToast(`Added "${activeChannel.name}" to favorites`);
+      showToast(`Added "${activeChannel.name}" to favorites`, 3000, "success");
     } else {
       favoritesSet.delete(activeChannel.id);
       favIcon.setAttribute("fill", "none");
       favToggleBtn.style.color = "var(--text-main)";
-      showToast(`Removed "${activeChannel.name}" from favorites`);
+      showToast(`Removed "${activeChannel.name}" from favorites`, 3000, "info");
     }
     renderCategoryTabs();
     applyFilters();
   });
 
-  // Fullscreen
-  fullscreenBtn.addEventListener("click", () => {
+  fullscreenBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
     if (!document.fullscreenElement) {
       videoContainer.requestFullscreen().catch((err) => console.error(err));
     } else {
@@ -934,7 +1254,6 @@ function setupEventListeners() {
 
   // Keyboard Shortcuts
   document.addEventListener("keydown", (e) => {
-    // If typing in input, ignore global shortcuts
     if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement).tagName)) return;
 
     if (e.code === "Space") {
@@ -942,10 +1261,14 @@ function setupEventListeners() {
       playPauseBtn.click();
     } else if (e.code === "ArrowLeft") {
       e.preventDefault();
-      playPrevChannel();
+      const { start } = getBufferRange();
+      videoElement.currentTime = Math.max(start, videoElement.currentTime - 10);
+      updateStreamTimeline();
     } else if (e.code === "ArrowRight") {
       e.preventDefault();
-      playNextChannel();
+      const { end } = getBufferRange();
+      videoElement.currentTime = Math.min(end, videoElement.currentTime + 10);
+      updateStreamTimeline();
     } else if (e.code === "KeyF") {
       e.preventDefault();
       fullscreenBtn.click();
@@ -956,5 +1279,4 @@ function setupEventListeners() {
   });
 }
 
-// Start application when DOM is ready
 document.addEventListener("DOMContentLoaded", initApp);

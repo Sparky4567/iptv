@@ -1,4 +1,14 @@
 import index from "./index.html";
+import {
+  getAllSavedChannels,
+  saveChannel,
+  deleteSavedChannel,
+  getAllSavedPlaylists,
+  savePlaylist,
+  deleteSavedPlaylist,
+  exportSQLiteData,
+  importSQLiteData,
+} from "./src/db";
 
 const PORT = process.env.PORT || 3000;
 
@@ -42,6 +52,106 @@ Bun.serve({
   port: PORT,
   routes: {
     "/": index,
+    "/api/storage/channels": {
+      GET: () => {
+        return new Response(JSON.stringify(getAllSavedChannels()), {
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        });
+      },
+      POST: async (req: Request) => {
+        try {
+          const body = await req.json();
+          if (!body.name || !body.url) {
+            return new Response(JSON.stringify({ error: "Channel name and URL are required" }), {
+              status: 400,
+              headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+            });
+          }
+          const saved = saveChannel(body);
+          return new Response(JSON.stringify(saved), {
+            status: 201,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        } catch (err: any) {
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: 500,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
+      },
+    },
+    "/api/storage/channels/:id": {
+      DELETE: (req: Request & { params: { id: string } }) => {
+        const deleted = deleteSavedChannel(req.params.id);
+        return new Response(JSON.stringify({ success: deleted }), {
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        });
+      },
+    },
+    "/api/storage/playlists": {
+      GET: () => {
+        return new Response(JSON.stringify(getAllSavedPlaylists()), {
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        });
+      },
+      POST: async (req: Request) => {
+        try {
+          const body = await req.json();
+          if (!body.url) {
+            return new Response(JSON.stringify({ error: "Playlist URL is required" }), {
+              status: 400,
+              headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+            });
+          }
+          const saved = savePlaylist(body.name || "Saved Playlist", body.url);
+          return new Response(JSON.stringify(saved), {
+            status: 201,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        } catch (err: any) {
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: 500,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
+      },
+    },
+    "/api/storage/playlists/:id": {
+      DELETE: (req: Request & { params: { id: string } }) => {
+        const deleted = deleteSavedPlaylist(req.params.id);
+        return new Response(JSON.stringify({ success: deleted }), {
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        });
+      },
+    },
+    "/api/storage/export": {
+      GET: () => {
+        const data = exportSQLiteData();
+        return new Response(JSON.stringify(data, null, 2), {
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Disposition": 'attachment; filename="iptv_storage_backup.json"',
+            "Access-Control-Allow-Origin": "*",
+          },
+        });
+      },
+    },
+    "/api/storage/import": {
+      POST: async (req: Request) => {
+        try {
+          const body = await req.json();
+          const res = importSQLiteData(body);
+          return new Response(JSON.stringify(res), {
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        } catch (err: any) {
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
+      },
+    },
     "/api/proxy": async (req: Request) => {
       const requestUrl = new URL(req.url);
       const targetUrl = requestUrl.searchParams.get("url");

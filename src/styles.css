@@ -1009,17 +1009,61 @@ video {
 
 .toast {
   background: rgba(18, 22, 33, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--accent-primary);
   color: #ffffff;
   padding: 12px 20px;
   border-radius: var(--radius-md);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   font-size: 0.88rem;
-  font-weight: 500;
+  font-weight: 600;
   display: flex;
   align-items: center;
   gap: 10px;
   animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.3s ease;
+}
+
+.toast.toast-success {
+  border-color: var(--accent-emerald);
+  background: rgba(16, 185, 129, 0.15);
+  color: #ecfdf5;
+  box-shadow: 0 10px 30px rgba(16, 185, 129, 0.3);
+}
+
+.toast.toast-error {
+  border-color: var(--accent-rose);
+  background: rgba(244, 63, 94, 0.15);
+  color: #fff1f2;
+  box-shadow: 0 10px 30px rgba(244, 63, 94, 0.3);
+}
+
+.toast.toast-warning {
+  border-color: var(--accent-amber);
+  background: rgba(245, 158, 11, 0.15);
+  color: #fffbeb;
+  box-shadow: 0 10px 30px rgba(245, 158, 11, 0.3);
+}
+
+.save-ch-sqlite-btn {
+  background: rgba(6, 182, 212, 0.1);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  color: var(--accent-cyan);
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.save-ch-sqlite-btn:hover {
+  background: rgba(6, 182, 212, 0.3);
+  border-color: var(--accent-cyan);
+  transform: scale(1.08);
 }
 
 @keyframes slideIn {
@@ -1387,3 +1431,336 @@ video {
     padding: 6px 10px;
   }
 }
+
+/* ==========================================================================
+   Stream Timeline Overlay (Shown on Pause) & SQLite Storage Components
+   ========================================================================== */
+
+.stream-timeline-container {
+  position: absolute;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  width: calc(100% - 48px);
+  max-width: 800px;
+  z-index: 40;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stream-timeline-container.active {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+
+.stream-timeline-card {
+  background: rgba(13, 17, 27, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: var(--radius-xl);
+  padding: 16px 20px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(99, 102, 241, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.timeline-status-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.timeline-pause-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: rgba(244, 63, 94, 0.2);
+  color: var(--accent-rose);
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.timeline-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.timeline-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-primary-sm {
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-cyan));
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-primary-sm:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+.btn-live-sm {
+  background: rgba(16, 185, 129, 0.18);
+  color: var(--accent-emerald);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.btn-live-sm:hover {
+  background: rgba(16, 185, 129, 0.3);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.4);
+}
+
+.live-dot-sm {
+  width: 7px;
+  height: 7px;
+  background-color: var(--accent-emerald);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--accent-emerald);
+  animation: pulse-live 1.5s infinite;
+}
+
+/* Timeline Scrubber Track */
+.timeline-scrubber-wrapper {
+  position: relative;
+  width: 100%;
+  padding: 8px 0;
+}
+
+.timeline-tooltip {
+  position: absolute;
+  top: -26px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-panel-solid);
+  color: var(--accent-cyan);
+  border: 1px solid var(--accent-cyan);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  white-space: nowrap;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+}
+
+.timeline-tooltip.active {
+  opacity: 1;
+}
+
+.timeline-track-container {
+  position: relative;
+  width: 100%;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.timeline-buffered-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.4), rgba(6, 182, 212, 0.6));
+  border-radius: 6px;
+  pointer-events: none;
+  width: 100%;
+  transition: width 0.3s ease;
+}
+
+.stream-timeline-slider {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.85;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.stream-timeline-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  border: 2px solid #fff;
+  box-shadow: 0 0 10px var(--accent-cyan);
+  cursor: grab;
+  transition: transform 0.1s ease;
+}
+
+.stream-timeline-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.25);
+}
+
+.stream-timeline-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  border: 2px solid #fff;
+  box-shadow: 0 0 10px var(--accent-cyan);
+  cursor: grab;
+}
+
+/* Timeline Footer */
+.timeline-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.timeline-time-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.time-label {
+  font-weight: 600;
+}
+
+.time-label.live-label {
+  color: var(--accent-emerald);
+}
+
+.missed-badge {
+  padding: 3px 10px;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent-amber);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.timeline-quick-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quick-skip-btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.quick-skip-btn:hover {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: var(--accent-primary);
+  color: #fff;
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.btn-secondary:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: var(--accent-primary);
+}
+
+.btn-save-sqlite {
+  background: rgba(6, 182, 212, 0.15);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-save-sqlite:hover {
+  background: rgba(6, 182, 212, 0.3);
+}
+
+@media (max-width: 640px) {
+  .stream-timeline-container {
+    bottom: 80px;
+    width: calc(100% - 24px);
+  }
+
+  .stream-timeline-card {
+    padding: 12px;
+  }
+
+  .timeline-title {
+    font-size: 0.85rem;
+  }
+
+  .timeline-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+

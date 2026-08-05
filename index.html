@@ -118,6 +118,10 @@
             <span>★ Favorites</span>
             <span class="category-count-badge">0</span>
           </div>
+          <div class="category-tree-item" data-category="SQLITE_SAVED">
+            <span>💾 Saved Channels (SQLite)</span>
+            <span class="category-count-badge" id="sqlite-channels-count">0</span>
+          </div>
         </div>
       </div>
 
@@ -160,6 +164,58 @@
     <main class="player-viewport">
       <div class="video-container" id="video-container">
         <video id="video-player" playsinline crossorigin="anonymous"></video>
+
+        <!-- Stream Timeline Overlay (Shown on Pause) -->
+        <div id="stream-timeline-container" class="stream-timeline-container">
+          <div class="stream-timeline-card">
+            <div class="timeline-header">
+              <div class="timeline-status-info">
+                <div class="timeline-pause-badge">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="4" width="4" height="16"></rect>
+                    <rect x="14" y="4" width="4" height="16"></rect>
+                  </svg>
+                  <span>PAUSED</span>
+                </div>
+                <div class="timeline-title">Stream Timeline — Content Missed</div>
+              </div>
+              <div class="timeline-actions">
+                <button id="timeline-resume-btn" class="btn-primary-sm" title="Resume Playback">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                  <span>Resume</span>
+                </button>
+                <button id="timeline-live-btn" class="btn-live-sm" title="Jump to Live Edge">
+                  <div class="live-dot-sm"></div>
+                  <span>Jump to Live</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Timeline Scrubber Bar Area -->
+            <div class="timeline-scrubber-wrapper">
+              <div id="timeline-tooltip" class="timeline-tooltip">-00:00</div>
+              <div class="timeline-track-container">
+                <div id="timeline-buffered-fill" class="timeline-buffered-fill"></div>
+                <input type="range" id="stream-timeline-slider" class="stream-timeline-slider" min="0" max="100" step="0.1" value="100">
+              </div>
+            </div>
+
+            <!-- Timeline Details & Controls Footer -->
+            <div class="timeline-footer">
+              <div class="timeline-time-info">
+                <span id="timeline-start-time" class="time-label">Buffer Start (-00:00)</span>
+                <span id="timeline-missed-badge" class="missed-badge">Watching Live</span>
+                <span id="timeline-end-time" class="time-label live-label">LIVE Edge (00:00)</span>
+              </div>
+
+              <div class="timeline-quick-controls">
+                <button id="skip-back-60-btn" class="quick-skip-btn" title="Rewind 60 seconds">-60s</button>
+                <button id="skip-back-15-btn" class="quick-skip-btn" title="Rewind 15 seconds">-15s</button>
+                <button id="skip-forward-15-btn" class="quick-skip-btn" title="Forward 15 seconds">+15s</button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <!-- Player Overlay -->
         <div id="player-overlay" class="player-overlay">
@@ -238,6 +294,14 @@
                   </div>
                 </div>
 
+                <button id="save-sqlite-btn" class="control-btn" title="Save Channel URL to SQLite Database">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                  </svg>
+                </button>
+
                 <button id="fav-toggle-btn" class="control-btn" title="Mark as Favorite">
                   <svg id="fav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
@@ -261,7 +325,7 @@
   <div id="playlist-modal" class="modal-backdrop">
     <div class="modal-box">
       <div class="modal-header">
-        <h3 class="modal-title">Manage M3U Playlists</h3>
+        <h3 class="modal-title">Manage M3U Playlists & SQLite Storage</h3>
         <button id="close-modal-btn" class="modal-close-btn">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -279,15 +343,46 @@
           <label class="form-label" for="m3u-url-input">M3U / M3U8 Playlist URL</label>
           <div style="display: flex; gap: 10px;">
             <input type="url" id="m3u-url-input" class="form-input" style="flex: 1;" placeholder="https://example.com/playlist.m3u" required>
-            <button type="submit" class="btn-primary">Save & Load</button>
+            <button type="submit" class="btn-primary">Save to SQLite & Load</button>
           </div>
         </form>
 
         <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 8px 0;">
 
-        <!-- Saved Playlists Section (ImmortalDB) -->
+        <!-- Local File Storage & SQLite Backup Section -->
+        <div class="storage-backup-box" style="background: rgba(255,255,255,0.03); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+          <h4 class="form-label" style="margin-bottom: 6px;">Local File Storage & SQLite Backup</h4>
+          <p style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4;">
+            Backup your saved channels & playlists into a local file or import a saved JSON backup directly into SQLite.
+          </p>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button id="export-storage-btn" class="btn-secondary" style="font-size: 0.8rem; padding: 8px 14px; display: inline-flex; align-items: center; gap: 6px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Export Storage (.json)</span>
+            </button>
+            <label id="import-storage-label" class="btn-secondary" style="font-size: 0.8rem; padding: 8px 14px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              <span>Import Storage File</span>
+              <input type="file" id="import-storage-file" accept=".json,.m3u,.m3u8" style="display: none;">
+            </label>
+          </div>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 8px 0;">
+
+        <!-- Saved Channels (SQLite) Section -->
         <div>
-          <h4 class="form-label" style="margin-bottom: 12px;">Your Saved Playlists (Persisted with ImmortalDB)</h4>
+          <h4 class="form-label" style="margin-bottom: 12px;">Saved Channel URLs (SQLite DB)</h4>
+          <div id="saved-channels-sqlite-list" style="display: flex; flex-direction: column; gap: 8px;">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 8px 0;">
+
+        <!-- Saved Playlists Section (SQLite & ImmortalDB) -->
+        <div>
+          <h4 class="form-label" style="margin-bottom: 12px;">Your Saved Playlists (SQLite & ImmortalDB)</h4>
           <div id="saved-playlists-list" style="display: flex; flex-direction: column; gap: 8px;">
             <!-- Rendered dynamically -->
           </div>
