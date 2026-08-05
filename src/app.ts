@@ -35,6 +35,73 @@ const BATCH_SIZE = 80;
 let currentlyRenderedCount = BATCH_SIZE;
 let timelineInterval: any = null;
 
+// Autohide Controls State & Configuration
+let autohideEnabled = true;
+let autohideTimer: any = null;
+const AUTOHIDE_DELAY_MS = 3000;
+
+function resetAutohideTimer() {
+  if (autohideTimer) {
+    clearTimeout(autohideTimer);
+    autohideTimer = null;
+  }
+
+  if (videoContainer) {
+    videoContainer.classList.remove("controls-hidden");
+    videoContainer.classList.add("controls-visible");
+  }
+
+  if (autohideEnabled && videoElement && !videoElement.paused) {
+    autohideTimer = setTimeout(() => {
+      if (langDropdown?.classList.contains("active") || (videoElement && videoElement.paused)) {
+        return;
+      }
+      if (videoContainer) {
+        videoContainer.classList.remove("controls-visible");
+        videoContainer.classList.add("controls-hidden");
+      }
+    }, AUTOHIDE_DELAY_MS);
+  }
+}
+
+function updateAutohideUI() {
+  const autohideBtn = document.getElementById("autohide-toggle-btn") as HTMLButtonElement;
+  const autohideOnIcon = document.getElementById("autohide-on-icon") as SVGElement;
+  const autohideOffIcon = document.getElementById("autohide-off-icon") as SVGElement;
+
+  if (autohideEnabled) {
+    if (autohideOnIcon) autohideOnIcon.style.display = "block";
+    if (autohideOffIcon) autohideOffIcon.style.display = "none";
+    if (autohideBtn) {
+      autohideBtn.classList.add("active");
+      autohideBtn.title = "Controls Auto-Hide: ON (Press A to toggle)";
+    }
+  } else {
+    if (autohideOnIcon) autohideOnIcon.style.display = "none";
+    if (autohideOffIcon) autohideOffIcon.style.display = "block";
+    if (autohideBtn) {
+      autohideBtn.classList.remove("active");
+      autohideBtn.title = "Controls Auto-Hide: OFF (Press A to toggle)";
+    }
+  }
+}
+
+function toggleAutohide() {
+  autohideEnabled = !autohideEnabled;
+  try {
+    localStorage.setItem("iptv_autohide_enabled", String(autohideEnabled));
+  } catch (e) {
+    // ignore
+  }
+  updateAutohideUI();
+  showToast(
+    autohideEnabled ? "Auto-hide controls: ON (3s delay)" : "Auto-hide controls: OFF (Always visible)",
+    2500,
+    "info"
+  );
+  resetAutohideTimer();
+}
+
 // DOM Elements
 const videoElement = document.getElementById("video-player") as HTMLVideoElement;
 const channelListEl = document.getElementById("channel-list") as HTMLDivElement;
@@ -75,6 +142,7 @@ const volumeHighIcon = document.getElementById("volume-high-icon") as SVGElement
 const volumeMuteIcon = document.getElementById("volume-mute-icon") as SVGElement;
 const volumeSlider = document.getElementById("volume-slider") as HTMLInputElement;
 const saveSqliteBtn = document.getElementById("save-sqlite-btn") as HTMLButtonElement;
+const autohideToggleBtn = document.getElementById("autohide-toggle-btn") as HTMLButtonElement;
 const favToggleBtn = document.getElementById("fav-toggle-btn") as HTMLButtonElement;
 const favIcon = document.getElementById("fav-icon") as SVGElement;
 const fullscreenBtn = document.getElementById("fullscreen-btn") as HTMLButtonElement;
@@ -307,6 +375,18 @@ async function initApp() {
 
   // Load Playlist
   await loadPlaylist(currentPlaylistUrl);
+
+  // Load Autohide Preference
+  try {
+    const savedAutohide = localStorage.getItem("iptv_autohide_enabled");
+    if (savedAutohide !== null) {
+      autohideEnabled = savedAutohide === "true";
+    }
+  } catch (e) {
+    // ignore
+  }
+  updateAutohideUI();
+  resetAutohideTimer();
 
   // Event Listeners
   setupEventListeners();
@@ -1184,6 +1264,51 @@ function setupEventListeners() {
     }
   });
 
+  // Autohide Controls Events & Interaction
+  autohideToggleBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleAutohide();
+  });
+
+  const playerViewport = document.querySelector(".player-viewport") as HTMLElement;
+
+  const triggerEvents = ["mousemove", "mouseenter", "click", "dblclick", "pointerdown", "touchstart", "touchmove"];
+  triggerEvents.forEach((evt) => {
+    videoContainer?.addEventListener(evt, () => {
+      resetAutohideTimer();
+    });
+    playerViewport?.addEventListener(evt, () => {
+      resetAutohideTimer();
+    });
+  });
+
+  // Track mouse movement across document to reveal controls when hovering video player or viewport
+  document.addEventListener("mousemove", (e) => {
+    if (videoContainer && autohideEnabled && !videoElement.paused) {
+      const rect = videoContainer.getBoundingClientRect();
+      if (
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom
+      ) {
+        resetAutohideTimer();
+      }
+    }
+  });
+
+  videoContainer?.addEventListener("mouseleave", () => {
+    if (autohideEnabled && !videoElement.paused) {
+      if (autohideTimer) clearTimeout(autohideTimer);
+      autohideTimer = setTimeout(() => {
+        if (!langDropdown?.classList.contains("active") && !videoElement.paused) {
+          videoContainer.classList.remove("controls-visible");
+          videoContainer.classList.add("controls-hidden");
+        }
+      }, 1200);
+    }
+  });
+
   // Player Play/Pause Button
   playPauseBtn.addEventListener("click", async (e) => {
     e.stopPropagation();
@@ -1197,10 +1322,12 @@ function setupEventListeners() {
   videoElement.addEventListener("play", () => {
     updatePlayPauseIcons(true);
     if (timelineInterval) clearInterval(timelineInterval);
+    resetAutohideTimer();
   });
 
   videoElement.addEventListener("pause", () => {
     updatePlayPauseIcons(false);
+    resetAutohideTimer();
     if (!videoElement.ended) {
       streamTimelineContainer.classList.add("active");
       updateStreamTimeline();
@@ -1302,6 +1429,11 @@ function setupEventListeners() {
     if (target.closest(".player-overlay, .stream-timeline-container, .modal-backdrop")) {
       return;
     }
+    // If controls were hidden, clicking/tapping reveals controls first without pausing video
+    if (videoContainer.classList.contains("controls-hidden")) {
+      resetAutohideTimer();
+      return;
+    }
     playPauseBtn.click();
   });
 
@@ -1309,6 +1441,9 @@ function setupEventListeners() {
     const target = e.target as HTMLElement;
     if (target.closest(".player-overlay, .stream-timeline-container, .modal-backdrop")) {
       return;
+    }
+    if (videoContainer.classList.contains("controls-hidden")) {
+      resetAutohideTimer();
     }
     fullscreenBtn.click();
   });
@@ -1356,6 +1491,8 @@ function setupEventListeners() {
   document.addEventListener("keydown", (e) => {
     if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement).tagName)) return;
 
+    resetAutohideTimer();
+
     if (e.code === "Space") {
       e.preventDefault();
       playPauseBtn.click();
@@ -1375,6 +1512,9 @@ function setupEventListeners() {
     } else if (e.code === "KeyM") {
       e.preventDefault();
       muteBtn.click();
+    } else if (e.code === "KeyA") {
+      e.preventDefault();
+      toggleAutohide();
     }
   });
 }

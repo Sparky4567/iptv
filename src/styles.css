@@ -680,9 +680,20 @@ video {
   transition: opacity 0.25s ease;
 }
 
-.video-container:hover .player-overlay,
+.video-container:hover:not(.controls-hidden) .player-overlay,
+.video-container.controls-visible .player-overlay,
 .player-overlay.force-show {
   opacity: 1;
+}
+
+.video-container.controls-hidden .player-overlay {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.video-container.controls-hidden {
+  cursor: none;
 }
 
 .overlay-top {
@@ -794,6 +805,13 @@ video {
   border-color: transparent;
   transform: scale(1.08);
   box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+}
+
+.control-btn.active {
+  background: rgba(99, 102, 241, 0.25);
+  color: var(--accent-cyan);
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.3);
 }
 
 .control-btn svg {
@@ -1289,7 +1307,7 @@ video {
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
 }
 
-/* Comprehensive Responsive Breakpoints */
+/* Comprehensive Mobile Compact View Breakpoints */
 @media (max-width: 900px) {
   .mobile-menu-btn {
     display: flex;
@@ -1319,10 +1337,10 @@ video {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .app-header {
-    height: 56px;
-    padding: 0 12px;
+    height: 54px;
+    padding: 0 10px;
   }
 
   .brand {
@@ -1330,51 +1348,50 @@ video {
   }
 
   .brand-logo {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
   }
 
   .brand-title {
-    font-size: 1.05rem;
+    font-size: 0.98rem;
   }
 
   .brand-badge {
     display: none;
   }
 
-  .header-actions {
-    gap: 6px;
-  }
-
-  .playlist-selector-btn {
-    padding: 6px 10px;
-    font-size: 0.78rem;
-  }
-
-  .btn-primary {
-    padding: 6px 12px;
-    font-size: 0.78rem;
-  }
-
   .app-container {
-    height: calc(100vh - 56px);
+    height: calc(100vh - 54px);
   }
 
   .sidebar {
-    top: 56px;
+    top: 54px;
     width: 100vw;
     max-width: 100vw;
-    height: calc(100vh - 56px);
+    height: calc(100vh - 54px);
   }
 
   .mobile-nav-tabs {
     display: flex;
+    padding: 6px 10px;
+    gap: 8px;
+    background: rgba(12, 16, 26, 0.95);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .mobile-tab-btn {
+    flex: 1;
+    padding: 7px 12px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    border-radius: var(--radius-md);
   }
 
   .category-sidebar {
     display: none;
     width: 100%;
     border-right: none;
+    padding: 8px;
   }
 
   .channel-panel {
@@ -1394,41 +1411,99 @@ video {
     display: flex;
   }
 
-  .player-overlay {
-    padding: 12px;
+  /* Compact Mobile Channel Items */
+  .channel-list {
+    padding: 8px;
+    gap: 6px;
   }
 
-  .current-channel-card {
-    padding: 8px 12px;
+  .channel-item {
+    padding: 8px 10px;
     gap: 10px;
+    border-radius: var(--radius-sm);
   }
 
-  .current-title {
-    font-size: 0.92rem;
+  .channel-logo-container {
+    width: 34px;
+    height: 34px;
   }
 
-  .current-category {
+  .channel-name {
+    font-size: 0.84rem;
+  }
+
+  .channel-group {
     font-size: 0.7rem;
   }
 
-  .player-controls-row {
-    padding: 8px 14px;
+  /* Compact Mobile Overlay & Control Bar */
+  .player-overlay {
+    padding: 10px;
+  }
+
+  .overlay-top {
     gap: 8px;
+  }
+
+  .current-channel-card {
+    padding: 6px 12px;
+    gap: 10px;
+    max-width: calc(100% - 75px);
+  }
+
+  .current-logo {
+    width: 28px;
+    height: 28px;
+  }
+
+  .current-title {
+    font-size: 0.88rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .current-category {
+    font-size: 0.68rem;
+  }
+
+  .live-badge {
+    padding: 3px 8px;
+    font-size: 0.68rem;
+    flex-shrink: 0;
+  }
+
+  .player-controls-row {
+    padding: 6px 10px;
+    gap: 6px;
     flex-wrap: wrap;
-    justify-content: center;
+    justify-content: space-between;
+    border-radius: var(--radius-lg);
   }
 
   .controls-left, .controls-right {
-    gap: 6px;
+    gap: 5px;
+    flex-wrap: nowrap;
+  }
+
+  .control-btn {
+    padding: 7px;
+    width: 34px;
+    height: 34px;
+  }
+
+  .control-btn svg {
+    width: 16px;
+    height: 16px;
   }
 
   .volume-wrapper {
-    gap: 6px;
-    padding: 2px 8px;
+    gap: 4px;
+    padding: 2px 8px 2px 4px;
   }
 
   .volume-slider {
-    width: 60px;
+    width: 50px;
   }
 
   .volume-val-badge {
@@ -1436,25 +1511,129 @@ video {
   }
 }
 
-@media (max-width: 440px) {
+@media (max-width: 480px) {
+  .app-header {
+    height: 50px;
+    padding: 0 8px;
+  }
+
+  .brand {
+    gap: 6px;
+  }
+
+  .brand-logo {
+    width: 28px;
+    height: 28px;
+  }
+
   .brand-title {
-    font-size: 0.95rem;
+    font-size: 0.9rem;
+    max-width: 105px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-actions {
+    gap: 4px;
+  }
+
+  .playlist-selector-btn {
+    padding: 5px 8px;
+    font-size: 0.75rem;
+    max-width: 125px;
   }
 
   .playlist-selector-btn #current-playlist-label {
-    max-width: 100px;
+    max-width: 75px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     display: inline-block;
   }
 
+  .btn-primary {
+    padding: 5px 8px;
+    font-size: 0.75rem;
+  }
+
   .btn-primary span {
     display: none;
   }
 
-  .btn-primary {
-    padding: 6px 10px;
+  .app-container {
+    height: calc(100vh - 50px);
+  }
+
+  .sidebar {
+    top: 50px;
+    height: calc(100vh - 50px);
+  }
+
+  /* Ultra-Compact Channel Items for Small Screens */
+  .channel-item {
+    padding: 6px 8px;
+    gap: 8px;
+  }
+
+  .channel-logo-container {
+    width: 30px;
+    height: 30px;
+  }
+
+  .channel-name {
+    font-size: 0.8rem;
+  }
+
+  .fav-btn {
+    padding: 4px;
+  }
+
+  /* Ultra-Compact Control Bar for Small Screens */
+  .player-overlay {
+    padding: 8px;
+  }
+
+  .current-channel-card {
+    padding: 5px 10px;
+    gap: 8px;
+  }
+
+  .current-logo {
+    width: 24px;
+    height: 24px;
+  }
+
+  .current-title {
+    font-size: 0.82rem;
+  }
+
+  .player-controls-row {
+    padding: 6px 8px;
+    gap: 4px;
+  }
+
+  .controls-left, .controls-right {
+    gap: 4px;
+  }
+
+  .control-btn {
+    padding: 5px;
+    width: 30px;
+    height: 30px;
+  }
+
+  .control-btn svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .volume-wrapper {
+    padding: 2px 6px 2px 2px;
+  }
+
+  .volume-slider {
+    width: 38px;
   }
 }
 
